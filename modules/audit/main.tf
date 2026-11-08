@@ -59,6 +59,9 @@ resource "aws_s3_bucket_lifecycle_configuration" "trail" {
     filter {
       prefix = "AWSLogs/"
     }
+    abort_incomplete_multipart_upload {
+      days_after_initiation = 7
+    }
 
     transition {
       days          = var.glacier_transition_days
