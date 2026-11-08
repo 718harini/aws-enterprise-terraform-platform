@@ -1,0 +1,13 @@
+{
+  "project": "Enterprise AWS Terraform Platform",
+  "file_count": 27,
+  "included_modules": [
+    "network",
+    "storage",
+    "compute",
+    "database",
+    "serverless",
+    "audit"
+  ],
+  "safe_defaults": "All root feature flags default to false"
+}

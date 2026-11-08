@@ -1,0 +1,31 @@
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+crash.log
+crash.*.log
+terraform.tfvars
+*.pem
+*.key
+.env
+.DS_Store
+# Terraform generated files
+*.tfstate.backup
+*.auto.tfvars
+*.plan
+
+# Generated Lambda deployment packages
+modules/serverless/lambda_payload.zip
+
+# Environment secrets
+.env.*
+!.env.example
+
+# Python generated files
+__pycache__/
+*.py[cod]
+
+# Editor and operating system files
+.vscode/
+.idea/
+Thumbs.db
