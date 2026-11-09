@@ -129,3 +129,10 @@ variable "glacier_transition_days" {
     error_message = "Glacier transition days must be at least 1."
   }
 }
+variable "availability_zone_ids" {
+  description = "Explicit Availability Zone IDs for the selected AWS region."
+  type        = list(string)
+
+  # These IDs are for us-east-1.
+  default = ["use1-az1", "use1-az2"]
+}

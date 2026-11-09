@@ -1,4 +1,6 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import cloudControlAPI from "./services/api";
+
 import ComputePage from "./pages/computepage";
 import NetworkingPage from "./pages/NetworkingPage";
 import StoragePage from "./pages/StoragePage";
@@ -24,7 +26,6 @@ import {
   ArrowDownRight,
   Cpu,
   Zap,
-  Menu,
 } from "lucide-react";
 
 import {
@@ -42,7 +43,9 @@ import {
   Cell,
 } from "recharts";
 
+// =====================================================
 // SIDEBAR NAVIGATION
+// =====================================================
 
 const navigation = [
   { name: "Overview", icon: LayoutDashboard },
@@ -55,63 +58,9 @@ const navigation = [
   { name: "Cost Optimization", icon: DollarSign },
 ];
 
-// DEMO DATA
-
-const cpuData = [
-  { time: "09:00", usage: 32 },
-  { time: "10:00", usage: 45 },
-  { time: "11:00", usage: 38 },
-  { time: "12:00", usage: 62 },
-  { time: "13:00", usage: 48 },
-  { time: "14:00", usage: 70 },
-  { time: "15:00", usage: 55 },
-  { time: "16:00", usage: 64 },
-];
-
-const costData = [
-  { month: "May", cost: 120 },
-  { month: "Jun", cost: 180 },
-  { month: "Jul", cost: 150 },
-  { month: "Aug", cost: 240 },
-  { month: "Sep", cost: 190 },
-  { month: "Oct", cost: 280 },
-];
-
-const resourceData = [
-  { name: "Compute", value: 40, color: "#3B82F6" },
-  { name: "Storage", value: 25, color: "#8B5CF6" },
-  { name: "Database", value: 20, color: "#06B6D4" },
-  { name: "Network", value: 15, color: "#10B981" },
-];
-
-const activities = [
-  {
-    title: "EC2 instance launched",
-    detail: "i-0a12bc34 · us-east-1",
-    time: "2 min ago",
-    color: "bg-emerald-400",
-  },
-  {
-    title: "S3 bucket created",
-    detail: "enterprise-storage-dev",
-    time: "18 min ago",
-    color: "bg-blue-400",
-  },
-  {
-    title: "Security scan completed",
-    detail: "Configured checks processed",
-    time: "35 min ago",
-    color: "bg-violet-400",
-  },
-  {
-    title: "Terraform deployment",
-    detail: "Infrastructure validation passed",
-    time: "1 hour ago",
-    color: "bg-cyan-400",
-  },
-];
-
+// =====================================================
 // PAGE INFORMATION
+// =====================================================
 
 const pageInformation = {
   Compute: {
@@ -185,7 +134,9 @@ const pageInformation = {
   },
 };
 
+// =====================================================
 // REUSABLE METRIC CARD
+// =====================================================
 
 function MetricCard({
   title,
@@ -193,11 +144,13 @@ function MetricCard({
   change,
   icon: Icon,
   positive = true,
+  loading = false,
 }) {
   return (
     <div className="rounded-2xl border border-slate-800 bg-slate-900/80 p-5 transition hover:border-blue-500/50">
 
       <div className="flex items-center justify-between">
+
         <span className="text-sm text-slate-400">
           {title}
         </span>
@@ -205,11 +158,13 @@ function MetricCard({
         <div className="rounded-xl bg-blue-500/10 p-3 text-blue-400">
           <Icon size={21} />
         </div>
+
       </div>
 
       <div className="mt-5 flex items-end justify-between">
+
         <h3 className="text-3xl font-bold text-white">
-          {value}
+          {loading ? "..." : value}
         </h3>
 
         {change && (
@@ -227,26 +182,273 @@ function MetricCard({
             {change}
           </span>
         )}
+
       </div>
 
       <p className="mt-2 text-xs text-slate-500">
-        Demonstration data
+        Live AWS account data
       </p>
+
     </div>
   );
 }
 
+// =====================================================
 // MAIN APPLICATION
+// =====================================================
 
 function App() {
 
   const [activePage, setActivePage] = useState("Overview");
 
+  // =====================================================
+  // OVERVIEW DATA STATE
+  // =====================================================
+
+  const [overviewData, setOverviewData] = useState({
+    instances: 0,
+    buckets: 0,
+    databases: 0,
+    monthlyCost: 0,
+    cpuData: [],
+    costData: [],
+    resourceData: [],
+    loading: true,
+    error: null,
+  });
+
+  // =====================================================
+  // FETCH LIVE AWS DATA
+  // =====================================================
+
+  useEffect(() => {
+
+    async function fetchOverviewData() {
+
+      try {
+
+        const results = await Promise.allSettled([
+
+          cloudControlAPI.getEC2Instances(),
+
+          cloudControlAPI.getS3Buckets(),
+
+          cloudControlAPI.getDatabases(),
+
+          cloudControlAPI.getCostSummary(),
+
+          cloudControlAPI.getVPCs(),
+
+          cloudControlAPI.getEC2CPUMetrics(
+            "i-0aece314bbe6232c4"
+          ),
+
+        ]);
+
+        // Extract successful API responses
+
+        const getValue = (index) =>
+          results[index].status === "fulfilled"
+            ? results[index].value
+            : null;
+
+        const ec2 = getValue(0);
+        const s3 = getValue(1);
+        const rds = getValue(2);
+        const cost = getValue(3);
+        const vpc = getValue(4);
+        const cpu = getValue(5);
+
+        // =================================================
+        // CPU METRICS
+        // =================================================
+
+        const cpuData = (cpu?.datapoints || []).map(
+          (point) => ({
+
+            time: new Date(
+              point.timestamp
+            ).toLocaleTimeString([], {
+              hour: "2-digit",
+              minute: "2-digit",
+            }),
+
+            usage: Number(
+              point.average.toFixed(2)
+            ),
+
+          })
+        );
+
+        // =================================================
+        // DAILY COST DATA
+        // =================================================
+
+        const costData = (cost?.results || []).map(
+          (day) => {
+
+            const dailyCost = (
+              day.Groups || []
+            ).reduce(
+
+              (sum, group) =>
+
+                sum +
+                Number(
+                  group.Metrics?.UnblendedCost?.Amount || 0
+                ),
+
+              0
+
+            );
+
+            return {
+              date: day.TimePeriod.Start,
+              cost: Number(dailyCost.toFixed(2)),
+            };
+
+          }
+        );
+
+        const totalCost = costData.reduce(
+          (total, day) => total + day.cost,
+          0
+        );
+
+        // =================================================
+        // RESOURCE DISTRIBUTION
+        // =================================================
+
+        const resourceCounts = [
+
+          {
+            name: "Compute",
+            value: Number(ec2?.total_instances || 0),
+            color: "#3B82F6",
+          },
+
+          {
+            name: "Storage",
+            value: Number(s3?.total_buckets || 0),
+            color: "#8B5CF6",
+          },
+
+          {
+            name: "Database",
+            value: Number(rds?.total_databases || 0),
+            color: "#06B6D4",
+          },
+
+          {
+            name: "Network",
+            value: Number(vpc?.total_vpcs || 0),
+            color: "#10B981",
+          },
+
+        ];
+
+        const resourceTotal = resourceCounts.reduce(
+          (sum, item) => sum + item.value,
+          0
+        );
+
+        const resourceData = resourceCounts.map(
+          (item) => ({
+
+            ...item,
+
+            percentage:
+              resourceTotal > 0
+                ? Number(
+                    (
+                      (item.value / resourceTotal) * 100
+                    ).toFixed(1)
+                  )
+                : 0,
+
+          })
+        );
+
+        // =================================================
+        // UPDATE DASHBOARD
+        // =================================================
+
+        setOverviewData({
+
+          instances: ec2?.total_instances ?? 0,
+
+          buckets: s3?.total_buckets ?? 0,
+
+          databases: rds?.total_databases ?? 0,
+
+          monthlyCost: totalCost,
+
+          cpuData,
+
+          costData,
+
+          resourceData,
+
+          loading: false,
+
+          error: null,
+
+        });
+
+        // Log individual API failures
+
+        results.forEach((result, index) => {
+
+          if (result.status === "rejected") {
+
+            console.error(
+              `Overview API ${index} failed:`,
+              result.reason
+            );
+
+          }
+
+        });
+
+      } catch (error) {
+
+        console.error(
+          "Overview API error:",
+          error
+        );
+
+        setOverviewData((previous) => ({
+
+          ...previous,
+
+          loading: false,
+
+          error: error.message,
+
+        }));
+
+      }
+
+    }
+
+    fetchOverviewData();
+
+  }, []);
+
+  // =====================================================
+  // PAGE CONFIGURATION
+  // =====================================================
+
   const isOverview = activePage === "Overview";
 
   const currentPage = pageInformation[activePage];
 
+  // =====================================================
+  // MAIN RENDER
+  // =====================================================
+
   return (
+
     <div className="min-h-screen bg-[#080D19] text-slate-200">
 
       {/* SIDEBAR */}
@@ -260,6 +462,7 @@ function App() {
           </div>
 
           <div>
+
             <h1 className="text-lg font-bold tracking-wide text-white">
               CloudControl
             </h1>
@@ -267,6 +470,7 @@ function App() {
             <p className="text-[10px] uppercase tracking-widest text-slate-500">
               Enterprise Platform
             </p>
+
           </div>
 
         </div>
@@ -282,6 +486,7 @@ function App() {
             const Icon = item.icon;
 
             return (
+
               <button
                 key={item.name}
                 onClick={() => setActivePage(item.name)}
@@ -291,10 +496,13 @@ function App() {
                     : "text-slate-400 hover:bg-slate-800 hover:text-white"
                 }`}
               >
+
                 <Icon size={19} />
 
                 {item.name}
+
               </button>
+
             );
 
           })}
@@ -321,8 +529,11 @@ function App() {
             onClick={() => setActivePage("Overview")}
             className="flex items-center gap-3 px-3 text-sm text-slate-400 hover:text-white"
           >
+
             <Settings size={18} />
+
             Settings
+
           </button>
 
         </div>
@@ -344,13 +555,17 @@ function App() {
             </p>
 
             <h2 className="mt-2 text-3xl font-bold tracking-tight text-white">
-              {isOverview ? "Infrastructure Overview" : activePage}
+              {isOverview
+                ? "Infrastructure Overview"
+                : activePage}
             </h2>
 
             <p className="mt-2 text-sm text-slate-400">
+
               {isOverview
                 ? "Monitor, analyze and manage your cloud environment."
-                : currentPage.description}
+                : currentPage?.description}
+
             </p>
 
           </div>
@@ -362,56 +577,63 @@ function App() {
             </button>
 
             <button className="relative rounded-xl border border-slate-800 bg-slate-900 p-3 text-slate-400 hover:text-white">
+
               <Bell size={19} />
 
               <span className="absolute right-2 top-2 h-2 w-2 rounded-full bg-blue-500" />
+
             </button>
 
             <div className="rounded-xl border border-slate-800 bg-slate-900 px-4 py-3 text-xs text-slate-300">
+
               <span className="mr-2 inline-block h-2 w-2 rounded-full bg-emerald-400" />
 
               US East (N. Virginia)
+
             </div>
 
           </div>
 
         </header>
 
-        {/* OVERVIEW PAGE */}
+        {/* =================================================
+            OVERVIEW PAGE
+        ================================================= */}
 
         {isOverview && (
 
           <>
 
+            {/* METRIC CARDS */}
+
             <section className="grid grid-cols-1 gap-5 sm:grid-cols-2 xl:grid-cols-4">
 
               <MetricCard
                 title="EC2 Instances"
-                value="12"
-                change="+8.2%"
+                value={overviewData.instances}
                 icon={Server}
+                loading={overviewData.loading}
               />
 
               <MetricCard
                 title="Storage Buckets"
-                value="08"
-                change="+2.4%"
+                value={overviewData.buckets}
                 icon={HardDrive}
+                loading={overviewData.loading}
               />
 
               <MetricCard
                 title="Database Resources"
-                value="04"
-                change="+4.1%"
+                value={overviewData.databases}
                 icon={Database}
+                loading={overviewData.loading}
               />
 
               <MetricCard
-                title="Monthly Cloud Cost"
-                value="$284.50"
-                change="-5.6%"
+                title="Last 30 Days Cloud Cost"
+                value={`$${overviewData.monthlyCost.toFixed(2)}`}
                 icon={DollarSign}
-                positive={false}
+                loading={overviewData.loading}
               />
 
             </section>
@@ -420,6 +642,8 @@ function App() {
 
             <section className="mt-7 grid grid-cols-1 gap-6 xl:grid-cols-2">
 
+              {/* CPU UTILIZATION */}
+
               <div className="rounded-2xl border border-slate-800 bg-slate-900/80 p-6">
 
                 <h3 className="font-semibold text-white">
@@ -427,26 +651,62 @@ function App() {
                 </h3>
 
                 <p className="mt-1 text-xs text-slate-500">
-                  Compute performance · Last 8 hours
+                  CloudWatch CPU Utilization · Last 3 hours · Test EC2 instance
                 </p>
 
                 <ResponsiveContainer width="100%" height={250}>
-                  <AreaChart data={cpuData}>
+
+                  <AreaChart data={overviewData.cpuData}>
 
                     <defs>
-                      <linearGradient id="cpuGradient" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="0%" stopColor="#3B82F6" stopOpacity={0.4} />
-                        <stop offset="95%" stopColor="#3B82F6" stopOpacity={0} />
+
+                      <linearGradient
+                        id="cpuGradient"
+                        x1="0"
+                        y1="0"
+                        x2="0"
+                        y2="1"
+                      >
+
+                        <stop
+                          offset="0%"
+                          stopColor="#3B82F6"
+                          stopOpacity={0.4}
+                        />
+
+                        <stop
+                          offset="95%"
+                          stopColor="#3B82F6"
+                          stopOpacity={0}
+                        />
+
                       </linearGradient>
+
                     </defs>
 
-                    <CartesianGrid stroke="#1E293B" strokeDasharray="3 3" />
+                    <CartesianGrid
+                      stroke="#1E293B"
+                      strokeDasharray="3 3"
+                    />
 
-                    <XAxis dataKey="time" stroke="#64748B" fontSize={11} />
+                    <XAxis
+                      dataKey="time"
+                      stroke="#64748B"
+                      fontSize={11}
+                    />
 
-                    <YAxis stroke="#64748B" fontSize={11} />
+                    <YAxis
+                      stroke="#64748B"
+                      fontSize={11}
+                      domain={[0, 100]}
+                      tickFormatter={(value) => `${value}%`}
+                    />
 
                     <Tooltip
+                      formatter={(value) => [
+                        `${value}%`,
+                        "Average CPU",
+                      ]}
                       contentStyle={{
                         backgroundColor: "#0F172A",
                         border: "1px solid #334155",
@@ -461,12 +721,22 @@ function App() {
                       stroke="#3B82F6"
                       strokeWidth={3}
                       fill="url(#cpuGradient)"
+                      connectNulls={false}
                     />
 
                   </AreaChart>
+
                 </ResponsiveContainer>
 
+                {overviewData.cpuData.length === 0 && (
+                  <p className="text-center text-xs text-slate-500">
+                    No CloudWatch CPU datapoints available yet.
+                  </p>
+                )}
+
               </div>
+
+              {/* CLOUD COST */}
 
               <div className="rounded-2xl border border-slate-800 bg-slate-900/80 p-6">
 
@@ -475,19 +745,43 @@ function App() {
                 </h3>
 
                 <p className="mt-1 text-xs text-slate-500">
-                  Monthly expenditure · USD
+                  Daily expenditure · Last 30 days · USD
                 </p>
 
                 <ResponsiveContainer width="100%" height={250}>
-                  <BarChart data={costData}>
 
-                    <CartesianGrid stroke="#1E293B" strokeDasharray="3 3" />
+                  <BarChart data={overviewData.costData}>
 
-                    <XAxis dataKey="month" stroke="#64748B" fontSize={11} />
+                    <CartesianGrid
+                      stroke="#1E293B"
+                      strokeDasharray="3 3"
+                    />
 
-                    <YAxis stroke="#64748B" fontSize={11} />
+                    <XAxis
+                      dataKey="date"
+                      stroke="#64748B"
+                      fontSize={10}
+                      tickFormatter={(value) =>
+                        new Date(value).toLocaleDateString(
+                          "en-US",
+                          {
+                            day: "numeric",
+                            month: "short",
+                          }
+                        )
+                      }
+                    />
+
+                    <YAxis
+                      stroke="#64748B"
+                      fontSize={11}
+                    />
 
                     <Tooltip
+                      formatter={(value) => [
+                        `$${Number(value).toFixed(2)}`,
+                        "Daily Cost",
+                      ]}
                       contentStyle={{
                         backgroundColor: "#0F172A",
                         border: "1px solid #334155",
@@ -503,6 +797,7 @@ function App() {
                     />
 
                   </BarChart>
+
                 </ResponsiveContainer>
 
               </div>
@@ -513,6 +808,8 @@ function App() {
 
             <section className="mt-7 grid grid-cols-1 gap-6 xl:grid-cols-2">
 
+              {/* RESOURCE DISTRIBUTION */}
+
               <div className="rounded-2xl border border-slate-800 bg-slate-900/80 p-6">
 
                 <h3 className="font-semibold text-white">
@@ -520,16 +817,17 @@ function App() {
                 </h3>
 
                 <p className="mt-1 text-xs text-slate-500">
-                  Infrastructure allocation
+                  Infrastructure resource counts
                 </p>
 
                 <div className="mt-4 flex flex-col items-center gap-6 sm:flex-row">
 
                   <ResponsiveContainer width="100%" height={220}>
+
                     <PieChart>
 
                       <Pie
-                        data={resourceData}
+                        data={overviewData.resourceData}
                         dataKey="value"
                         nameKey="name"
                         innerRadius={55}
@@ -537,8 +835,13 @@ function App() {
                         paddingAngle={5}
                       >
 
-                        {resourceData.map((entry) => (
-                          <Cell key={entry.name} fill={entry.color} />
+                        {overviewData.resourceData.map((entry) => (
+
+                          <Cell
+                            key={entry.name}
+                            fill={entry.color}
+                          />
+
                         ))}
 
                       </Pie>
@@ -546,11 +849,12 @@ function App() {
                       <Tooltip />
 
                     </PieChart>
+
                   </ResponsiveContainer>
 
                   <div className="w-full space-y-4">
 
-                    {resourceData.map((item) => (
+                    {overviewData.resourceData.map((item) => (
 
                       <div
                         key={item.name}
@@ -561,7 +865,9 @@ function App() {
 
                           <span
                             className="h-2.5 w-2.5 rounded-full"
-                            style={{ backgroundColor: item.color }}
+                            style={{
+                              backgroundColor: item.color,
+                            }}
                           />
 
                           {item.name}
@@ -569,7 +875,7 @@ function App() {
                         </span>
 
                         <span className="font-semibold text-white">
-                          {item.value}%
+                          {item.percentage}%
                         </span>
 
                       </div>
@@ -582,11 +888,14 @@ function App() {
 
               </div>
 
+              {/* RECENT ACTIVITY */}
+
               <div className="rounded-2xl border border-slate-800 bg-slate-900/80 p-6">
 
                 <div className="mb-6 flex items-center justify-between">
 
                   <div>
+
                     <h3 className="font-semibold text-white">
                       Recent Activity
                     </h3>
@@ -594,45 +903,26 @@ function App() {
                     <p className="mt-1 text-xs text-slate-500">
                       Latest infrastructure events
                     </p>
+
                   </div>
 
-                  <Zap className="text-yellow-400" size={21} />
+                  <Zap
+                    className="text-yellow-400"
+                    size={21}
+                  />
 
                 </div>
 
-                <div className="space-y-6">
+                <div className="rounded-xl border border-slate-800 bg-slate-800/30 p-5">
 
-                  {activities.map((activity) => (
+                  <p className="text-sm font-medium text-white">
+                    CloudTrail integration pending
+                  </p>
 
-                    <div key={activity.title} className="flex gap-4">
-
-                      <div className="flex flex-col items-center">
-
-                        <span className={`mt-1 h-2.5 w-2.5 rounded-full ${activity.color}`} />
-
-                        <span className="mt-2 h-8 w-px bg-slate-800" />
-
-                      </div>
-
-                      <div className="flex-1">
-
-                        <p className="text-sm font-medium text-white">
-                          {activity.title}
-                        </p>
-
-                        <p className="mt-1 text-xs text-slate-500">
-                          {activity.detail}
-                        </p>
-
-                      </div>
-
-                      <span className="text-[10px] text-slate-500">
-                        {activity.time}
-                      </span>
-
-                    </div>
-
-                  ))}
+                  <p className="mt-2 text-xs text-slate-400">
+                    Connect AWS CloudTrail to display actual
+                    infrastructure events and account activity.
+                  </p>
 
                 </div>
 
@@ -643,77 +933,63 @@ function App() {
           </>
 
         )}
-    {/* OTHER INFRASTRUCTURE PAGES */}
 
-{!isOverview && (
-  <>
-    {activePage === "Compute" ? (
-      <ComputePage />
-    ) : activePage === "Networking" ? (
-      <NetworkingPage />
-    ) : activePage === "Storage" ? (
-  <StoragePage />
-) : activePage === "Databases" ? (
-  <DatabasePage />
-) : activePage === "Monitoring" ? (
-  <MonitoringPage />
-) : activePage === "Security" ? (
-  <SecurityPage />
-) : activePage === "Cost Optimization" ? (
-  <CostOptimizationPage />
-) : (
-      <>
-        <section className="grid grid-cols-1 gap-5 sm:grid-cols-2 xl:grid-cols-4">
-          {currentPage.metrics.map(([title, value], index) => {
-            const icons = [Server, Activity, Database, ShieldCheck];
-            const Icon = icons[index];
+        {/* =================================================
+            OTHER INFRASTRUCTURE PAGES
+        ================================================= */}
 
-            return (
-              <MetricCard
-                key={title}
-                title={title}
-                value={value}
-                icon={Icon}
-              />
-            );
-          })}
-        </section>
+        {!isOverview && (
 
-        <section className="mt-8 rounded-2xl border border-slate-800 bg-slate-900/80 p-8">
-          <div className="flex items-center gap-3">
-            <Activity className="text-blue-400" size={25} />
-            <h3 className="text-xl font-semibold text-white">
-              {activePage} Management
-            </h3>
-          </div>
+          <>
 
-          <p className="mt-3 text-sm text-slate-400">
-            This section is currently displaying demonstration data.
-            Detailed resource tables, filters, actions and backend
-            integration will be implemented in the next development phase.
-          </p>
+            {activePage === "Compute" ? (
 
-          <div className="mt-6 rounded-xl border border-blue-500/20 bg-blue-500/5 p-5">
-            <p className="text-sm text-blue-300">
-              Module Status: Frontend foundation completed.
-            </p>
-          </div>
-        </section>
-      </>
-    )}
-  </>
-)}
+              <ComputePage />
+
+            ) : activePage === "Networking" ? (
+
+              <NetworkingPage />
+
+            ) : activePage === "Storage" ? (
+
+              <StoragePage />
+
+            ) : activePage === "Databases" ? (
+
+              <DatabasePage />
+
+            ) : activePage === "Monitoring" ? (
+
+              <MonitoringPage />
+
+            ) : activePage === "Security" ? (
+
+              <SecurityPage />
+
+            ) : activePage === "Cost Optimization" ? (
+
+              <CostOptimizationPage />
+
+            ) : null}
+
+          </>
+
+        )}
+
         {/* FOOTER */}
 
         <footer className="mt-10 border-t border-slate-800 py-5 text-center text-xs text-slate-600">
-          CloudControl · AWS Enterprise Infrastructure Platform · Demo Data
+
+          CloudControl · AWS Enterprise Infrastructure Platform · Live API Integration
+
         </footer>
 
       </main>
 
     </div>
+
   );
+
 }
 
 export default App;
-

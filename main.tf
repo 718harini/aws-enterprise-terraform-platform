@@ -6,11 +6,12 @@ module "network" {
   source = "./modules/network"
   count  = var.enable_network ? 1 : 0
 
-  name_prefix         = local.name_prefix
-  vpc_cidr            = var.vpc_cidr
-  public_subnet_cidrs = var.public_subnet_cidrs
-  enable_ssh_ingress  = var.allowed_ssh_cidr != null
-  allowed_ssh_cidr    = var.allowed_ssh_cidr
+  name_prefix           = local.name_prefix
+  vpc_cidr              = var.vpc_cidr
+  public_subnet_cidrs   = var.public_subnet_cidrs
+  availability_zone_ids = var.availability_zone_ids
+  enable_ssh_ingress    = var.allowed_ssh_cidr != null
+  allowed_ssh_cidr      = var.allowed_ssh_cidr
 }
 
 module "storage" {

@@ -2,6 +2,8 @@
 # This example is intentionally separate from the root deployment.
 # Review the module version and inputs before using it.
 module "vpc" {
+  #checkov:skip=CKV_TF_1:This example intentionally demonstrates a Terraform Registry module pinned to version 5.21.0.
+
   source  = "terraform-aws-modules/vpc/aws"
   version = "5.21.0"
 

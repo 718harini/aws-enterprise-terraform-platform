@@ -29,3 +29,7 @@ __pycache__/
 .vscode/
 .idea/
 Thumbs.db
+# Frontend generated files
+node_modules/
+dist/
+coverage/

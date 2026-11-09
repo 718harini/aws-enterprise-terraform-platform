@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Database,
   Search,
@@ -10,149 +10,162 @@ import {
   Server,
 } from "lucide-react";
 
-const initialDatabases = [
-  {
-    id: "db-001",
-    name: "production-mysql",
-    engine: "MySQL",
-    version: "8.0",
-    type: "RDS",
-    size: "db.t3.micro",
-    region: "us-east-1",
-    backup: "Enabled",
-    encryption: "Enabled",
-    status: "Available",
-  },
-  {
-    id: "db-002",
-    name: "application-postgres",
-    engine: "PostgreSQL",
-    version: "16.1",
-    type: "RDS",
-    size: "db.t3.small",
-    region: "us-east-1",
-    backup: "Enabled",
-    encryption: "Enabled",
-    status: "Available",
-  },
-  {
-    id: "db-003",
-    name: "analytics-database",
-    engine: "MariaDB",
-    version: "10.11",
-    type: "RDS",
-    size: "db.t3.micro",
-    region: "ap-south-1",
-    backup: "Disabled",
-    encryption: "Enabled",
-    status: "Available",
-  },
-  {
-    id: "db-004",
-    name: "application-users",
-    engine: "DynamoDB",
-    version: "Managed",
-    type: "DynamoDB",
-    size: "On-Demand",
-    region: "us-east-1",
-    backup: "Enabled",
-    encryption: "Enabled",
-    status: "Active",
-  },
-  {
-    id: "db-005",
-    name: "session-storage",
-    engine: "DynamoDB",
-    version: "Managed",
-    type: "DynamoDB",
-    size: "On-Demand",
-    region: "ap-south-1",
-    backup: "Disabled",
-    encryption: "Enabled",
-    status: "Active",
-  },
-];
+import cloudControlAPI from "../services/api";
 
 function DatabasePage() {
-  const [databases, setDatabases] = useState(initialDatabases);
+  const [databases, setDatabases] = useState([]);
   const [search, setSearch] = useState("");
-  const [typeFilter, setTypeFilter] = useState("All");
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+
+  const fetchDatabases = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+
+      const data = await cloudControlAPI.getDatabases();
+
+      // Accept the response formats used by the backend.
+      const databaseList =
+        data.databases || data.instances || data.db_instances || [];
+
+      const formattedDatabases = databaseList.map((db, index) => {
+        const backupRetention =
+          db.backup_retention_period ??
+          db.backup_retention_days ??
+          db.BackupRetentionPeriod ??
+          0;
+
+        const encrypted =
+          db.storage_encrypted ??
+          db.encrypted ??
+          db.StorageEncrypted ??
+          false;
+
+        const status =
+          db.status ||
+          db.db_instance_status ||
+          db.DBInstanceStatus ||
+          "Unknown";
+
+        return {
+          id:
+            db.db_instance_identifier ||
+            db.identifier ||
+            db.DBInstanceIdentifier ||
+            `database-${index}`,
+
+          name:
+            db.db_instance_identifier ||
+            db.identifier ||
+            db.DBInstanceIdentifier ||
+            "Unnamed database",
+
+          engine:
+            db.engine ||
+            db.Engine ||
+            "Unknown",
+
+          version:
+            db.engine_version ||
+            db.EngineVersion ||
+            "",
+
+          type: "RDS",
+
+          size:
+            db.instance_class ||
+            db.DBInstanceClass ||
+            "Unknown",
+
+          region:
+            db.availability_zone ||
+            db.AvailabilityZone ||
+            "us-east-1",
+
+          backup: Number(backupRetention) > 0 ? "Enabled" : "Disabled",
+
+          encryption: encrypted ? "Enabled" : "Disabled",
+
+          status:
+            status.charAt(0).toUpperCase() + status.slice(1),
+
+          endpoint:
+            db.endpoint?.address ||
+            db.endpoint ||
+            db.Endpoint?.Address ||
+            "Not available",
+        };
+      });
+
+      setDatabases(formattedDatabases);
+    } catch (err) {
+      console.error("Database API error:", err);
+      setError(err.message || "Unable to load database information.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchDatabases();
+  }, []);
 
   const filteredDatabases = useMemo(() => {
     return databases.filter((db) => {
-      const matchesSearch =
-        db.name.toLowerCase().includes(search.toLowerCase()) ||
-        db.engine.toLowerCase().includes(search.toLowerCase()) ||
-        db.region.toLowerCase().includes(search.toLowerCase());
+      const searchText = search.toLowerCase();
 
-      const matchesType =
-        typeFilter === "All" || db.type === typeFilter;
-
-      return matchesSearch && matchesType;
+      return (
+        db.name.toLowerCase().includes(searchText) ||
+        db.engine.toLowerCase().includes(searchText) ||
+        db.region.toLowerCase().includes(searchText)
+      );
     });
-  }, [databases, search, typeFilter]);
-
-  const rdsCount = databases.filter((db) => db.type === "RDS").length;
-
-  const dynamoCount = databases.filter(
-    (db) => db.type === "DynamoDB"
-  ).length;
+  }, [databases, search]);
 
   const backupCount = databases.filter(
     (db) => db.backup === "Enabled"
   ).length;
 
+  const encryptionCount = databases.filter(
+    (db) => db.encryption === "Enabled"
+  ).length;
+
+  const availableCount = databases.filter(
+    (db) => db.status.toLowerCase() === "available"
+  ).length;
+
   const stats = [
     {
-      title: "Total Databases",
+      title: "Total RDS Instances",
       value: databases.length,
       icon: Database,
     },
     {
-      title: "RDS Instances",
-      value: rdsCount,
+      title: "Available Instances",
+      value: availableCount,
       icon: Server,
-    },
-    {
-      title: "DynamoDB Tables",
-      value: dynamoCount,
-      icon: HardDrive,
     },
     {
       title: "Backup Enabled",
       value: `${backupCount}/${databases.length}`,
+      icon: HardDrive,
+    },
+    {
+      title: "Encrypted Instances",
+      value: `${encryptionCount}/${databases.length}`,
       icon: ShieldCheck,
     },
   ];
 
-  const toggleBackup = (id) => {
-    setDatabases((previous) =>
-      previous.map((db) =>
-        db.id === id
-          ? {
-              ...db,
-              backup:
-                db.backup === "Enabled" ? "Disabled" : "Enabled",
-            }
-          : db
-      )
-    );
-  };
-
-  const resetDemo = () => {
-    setDatabases(initialDatabases);
-    setSearch("");
-    setTypeFilter("All");
-  };
-
   return (
     <div className="mt-6 space-y-7">
 
-      {/* DEMO NOTICE */}
+      {/* LIVE AWS NOTICE */}
 
-      <div className="rounded-xl border border-blue-500/20 bg-blue-500/5 p-4">
-        <p className="text-sm text-blue-300">
-          Database Inventory · Simulated data · No live AWS connection
+      <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-4">
+        <p className="text-sm text-emerald-300">
+          Live AWS RDS Inventory · Read-only connection · Region: us-east-1
         </p>
       </div>
 
@@ -178,7 +191,7 @@ function DatabasePage() {
               </div>
 
               <h3 className="mt-5 text-3xl font-bold text-white">
-                {stat.value}
+                {loading ? "..." : stat.value}
               </h3>
             </div>
           );
@@ -197,25 +210,29 @@ function DatabasePage() {
             </h3>
 
             <p className="mt-2 text-sm text-slate-400">
-              Monitor relational and NoSQL database resources.
+              Live relational database resources retrieved from AWS RDS.
             </p>
           </div>
 
           <button
-            onClick={resetDemo}
-            className="flex items-center gap-2 rounded-xl border border-slate-700 bg-slate-800 px-4 py-3 text-sm text-slate-300 hover:text-white"
+            onClick={fetchDatabases}
+            disabled={loading}
+            className="flex items-center gap-2 rounded-xl border border-slate-700 bg-slate-800 px-4 py-3 text-sm text-slate-300 hover:text-white disabled:opacity-50"
           >
-            <RefreshCw size={16} />
-            Reset Demo Data
+            <RefreshCw
+              size={16}
+              className={loading ? "animate-spin" : ""}
+            />
+            Refresh
           </button>
 
         </div>
 
-        {/* SEARCH AND FILTER */}
+        {/* SEARCH */}
 
-        <div className="mt-7 flex flex-col gap-3 sm:flex-row">
+        <div className="mt-7">
 
-          <div className="relative flex-1">
+          <div className="relative">
             <Search
               size={18}
               className="absolute left-3 top-3 text-slate-500"
@@ -230,17 +247,15 @@ function DatabasePage() {
             />
           </div>
 
-          <select
-            value={typeFilter}
-            onChange={(e) => setTypeFilter(e.target.value)}
-            className="rounded-xl border border-slate-700 bg-slate-950 px-4 py-3 text-sm text-white outline-none focus:border-blue-500"
-          >
-            <option value="All">All Database Types</option>
-            <option value="RDS">RDS</option>
-            <option value="DynamoDB">DynamoDB</option>
-          </select>
-
         </div>
+
+        {/* ERROR */}
+
+        {error && (
+          <div className="mt-5 rounded-xl border border-red-500/20 bg-red-500/5 p-4 text-sm text-red-300">
+            {error}
+          </div>
+        )}
 
         {/* TABLE */}
 
@@ -253,84 +268,106 @@ function DatabasePage() {
                 <th className="pb-4">Database</th>
                 <th className="pb-4">Engine</th>
                 <th className="pb-4">Type</th>
-                <th className="pb-4">Instance / Capacity</th>
-                <th className="pb-4">Region</th>
+                <th className="pb-4">Instance Class</th>
+                <th className="pb-4">Availability Zone</th>
                 <th className="pb-4">Backup</th>
                 <th className="pb-4">Encryption</th>
                 <th className="pb-4">Status</th>
-                <th className="pb-4">Action</th>
               </tr>
             </thead>
 
             <tbody>
-              {filteredDatabases.map((db) => (
-                <tr
-                  key={db.id}
-                  className="border-b border-slate-800/70 text-sm hover:bg-slate-800/30"
-                >
-                  <td className="py-5 font-medium text-white">
-                    {db.name}
-                  </td>
 
-                  <td className="py-5 text-slate-400">
-                    {db.engine} {db.version}
-                  </td>
+              {!loading &&
+                filteredDatabases.map((db) => (
+                  <tr
+                    key={db.id}
+                    className="border-b border-slate-800/70 text-sm hover:bg-slate-800/30"
+                  >
+                    <td className="py-5 font-medium text-white">
+                      {db.name}
+                    </td>
 
-                  <td className="py-5 text-slate-400">
-                    {db.type}
-                  </td>
+                    <td className="py-5 text-slate-400">
+                      {db.engine} {db.version}
+                    </td>
 
-                  <td className="py-5 text-slate-400">
-                    {db.size}
-                  </td>
+                    <td className="py-5 text-slate-400">
+                      {db.type}
+                    </td>
 
-                  <td className="py-5 text-slate-400">
-                    {db.region}
-                  </td>
+                    <td className="py-5 text-slate-400">
+                      {db.size}
+                    </td>
 
-                  <td className="py-5">
-                    <span
-                      className={
-                        db.backup === "Enabled"
-                          ? "text-emerald-400"
-                          : "text-amber-400"
-                      }
-                    >
-                      {db.backup}
-                    </span>
-                  </td>
+                    <td className="py-5 text-slate-400">
+                      {db.region}
+                    </td>
 
-                  <td className="py-5">
-                    <span className="flex items-center gap-1 text-xs text-emerald-400">
-                      <ShieldCheck size={14} />
-                      {db.encryption}
-                    </span>
-                  </td>
+                    <td className="py-5">
+                      <span
+                        className={
+                          db.backup === "Enabled"
+                            ? "text-emerald-400"
+                            : "text-amber-400"
+                        }
+                      >
+                        {db.backup}
+                      </span>
+                    </td>
 
-                  <td className="py-5">
-                    <span className="flex items-center gap-1 text-xs text-emerald-400">
-                      <CheckCircle size={13} />
-                      {db.status}
-                    </span>
-                  </td>
+                    <td className="py-5">
+                      <span
+                        className={
+                          db.encryption === "Enabled"
+                            ? "flex items-center gap-1 text-xs text-emerald-400"
+                            : "text-xs text-amber-400"
+                        }
+                      >
+                        {db.encryption === "Enabled" && (
+                          <ShieldCheck size={14} />
+                        )}
+                        {db.encryption}
+                      </span>
+                    </td>
 
-                  <td className="py-5">
-                    <button
-                      onClick={() => toggleBackup(db.id)}
-                      className="rounded-lg border border-blue-500/30 bg-blue-500/10 px-3 py-2 text-xs text-blue-300 hover:bg-blue-500/20"
-                    >
-                      Toggle Backup
-                    </button>
-                  </td>
-                </tr>
-              ))}
+                    <td className="py-5">
+                      <span className="flex items-center gap-1 text-xs text-emerald-400">
+                        <CheckCircle size={13} />
+                        {db.status}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+
             </tbody>
 
           </table>
 
-          {filteredDatabases.length === 0 && (
-            <div className="py-12 text-center text-sm text-slate-500">
-              No matching databases found.
+          {/* LOADING */}
+
+          {loading && (
+            <div className="py-12 text-center text-sm text-slate-400">
+              Loading live AWS database resources...
+            </div>
+          )}
+
+          {/* EMPTY */}
+
+          {!loading && !error && filteredDatabases.length === 0 && (
+            <div className="py-12 text-center">
+              <Database
+                size={32}
+                className="mx-auto mb-3 text-slate-600"
+              />
+
+              <p className="text-sm text-slate-400">
+                No RDS instances found in us-east-1.
+              </p>
+
+              <p className="mt-2 text-xs text-slate-500">
+                This is valid if no RDS databases are deployed in this region.
+              </p>
             </div>
           )}
 
@@ -338,12 +375,12 @@ function DatabasePage() {
 
         <div className="mt-5 flex justify-between text-xs text-slate-500">
           <span>
-            Showing {filteredDatabases.length} of {databases.length} databases
+            Showing {filteredDatabases.length} of {databases.length} RDS instances
           </span>
 
           <span className="flex items-center gap-2">
             <Activity size={14} />
-            Database Monitoring
+            Live AWS Monitoring
           </span>
         </div>
 

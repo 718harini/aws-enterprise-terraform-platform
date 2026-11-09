@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Search,
   RefreshCw,
@@ -9,58 +9,67 @@ import {
   MoreHorizontal,
 } from "lucide-react";
 
-const initialInstances = [
-  {
-    id: "i-0a12bc34de56f7890",
-    name: "production-web-01",
-    type: "t3.medium",
-    zone: "us-east-1a",
-    privateIp: "10.0.1.15",
-    publicIp: "54.210.10.25",
-    status: "Running",
-  },
-  {
-    id: "i-0b23cd45ef67a8901",
-    name: "application-server",
-    type: "t3.large",
-    zone: "us-east-1b",
-    privateIp: "10.0.2.20",
-    publicIp: "54.210.10.26",
-    status: "Running",
-  },
-  {
-    id: "i-0c34de56fa78b9012",
-    name: "testing-instance",
-    type: "t3.micro",
-    zone: "us-east-1a",
-    privateIp: "10.0.1.30",
-    publicIp: "—",
-    status: "Stopped",
-  },
-  {
-    id: "i-0d45ef67ab89c0123",
-    name: "monitoring-server",
-    type: "t3.small",
-    zone: "us-east-1c",
-    privateIp: "10.0.3.40",
-    publicIp: "54.210.10.28",
-    status: "Running",
-  },
-];
+import cloudControlAPI from "../services/api";
 
 export default function ComputePage() {
-  const [instances, setInstances] = useState(initialInstances);
+  const [instances, setInstances] = useState([]);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("All");
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+
+  async function fetchInstances() {
+    try {
+      setLoading(true);
+      setError(null);
+
+      const data = await cloudControlAPI.getEC2Instances();
+
+      const formattedInstances = (data.instances || []).map((instance) => {
+        const state = String(instance.state || "Unknown").toLowerCase();
+
+        return {
+          id: instance.instance_id,
+          name: instance.name || "Unnamed Instance",
+          type: instance.instance_type || "—",
+          zone: instance.availability_zone || "—",
+          privateIp: instance.private_ip || "—",
+          publicIp: instance.public_ip || "—",
+          status:
+            state === "running"
+              ? "Running"
+              : state === "stopped"
+                ? "Stopped"
+                : state.charAt(0).toUpperCase() + state.slice(1),
+        };
+      });
+
+      setInstances(formattedInstances);
+    } catch (err) {
+      console.error("EC2 API error:", err);
+      setError(err.message || "Unable to fetch EC2 instances.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    fetchInstances();
+  }, []);
 
   const filteredInstances = useMemo(() => {
     return instances.filter((instance) => {
-      const matchesSearch = [
+      const searchableValues = [
         instance.id,
         instance.name,
         instance.type,
+        instance.zone,
         instance.privateIp,
-      ]
+        instance.publicIp,
+        instance.status,
+      ];
+
+      const matchesSearch = searchableValues
         .join(" ")
         .toLowerCase()
         .includes(search.toLowerCase());
@@ -80,22 +89,10 @@ export default function ComputePage() {
     (instance) => instance.status === "Stopped"
   ).length;
 
-  function toggleInstance(instanceId) {
-    setInstances((currentInstances) =>
-      currentInstances.map((instance) => {
-        if (instance.id !== instanceId) return instance;
-
-        return {
-          ...instance,
-          status: instance.status === "Running" ? "Stopped" : "Running",
-        };
-      })
-    );
-  }
-
   return (
     <div className="space-y-6 text-slate-200">
-      {/* Page heading */}
+
+      {/* Header */}
       <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
         <div>
           <div className="mb-2 flex items-center gap-2 text-sm text-slate-400">
@@ -109,62 +106,75 @@ export default function ComputePage() {
           </h2>
 
           <p className="mt-1 text-sm text-slate-400">
-            Monitor and manage your EC2 instances.
+            Monitor your live AWS EC2 infrastructure.
           </p>
         </div>
 
         <button
-          onClick={() => {
-            setInstances(initialInstances);
-            setSearch("");
-            setStatusFilter("All");
-          }}
-          className="flex items-center justify-center gap-2 rounded-lg border border-slate-700 bg-slate-900 px-4 py-2 text-sm text-slate-300 transition hover:border-cyan-500 hover:text-white"
+          onClick={fetchInstances}
+          disabled={loading}
+          className="flex items-center justify-center gap-2 rounded-lg border border-slate-700 bg-slate-900 px-4 py-2 text-sm text-slate-300 transition hover:border-cyan-500 hover:text-white disabled:opacity-50"
         >
-          <RefreshCw size={16} />
-          Reset Demo Data
+          <RefreshCw
+            size={16}
+            className={loading ? "animate-spin" : ""}
+          />
+          Refresh AWS Data
         </button>
       </div>
 
-      {/* Demo notice */}
-      <div className="rounded-lg border border-amber-500/20 bg-amber-500/5 px-4 py-3 text-sm text-amber-300">
-        Demo environment — instance information is simulated. No AWS resources
-        are being accessed or modified.
+      {/* Connection Status */}
+      <div className="rounded-lg border border-emerald-500/20 bg-emerald-500/5 px-4 py-3 text-sm text-emerald-300">
+        Live AWS connection — read-only EC2 inventory.
       </div>
 
-      {/* Summary cards */}
+      {/* Error */}
+      {error && (
+        <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-300">
+          Unable to load EC2 data: {error}
+        </div>
+      )}
+
+      {/* Summary Cards */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
         <SummaryCard
           title="Total Instances"
-          value={instances.length}
+          value={loading ? "..." : instances.length}
           icon={<Server size={20} />}
         />
 
         <SummaryCard
           title="Running"
-          value={runningCount}
+          value={loading ? "..." : runningCount}
           icon={<Play size={20} />}
           accent="text-emerald-400"
         />
 
         <SummaryCard
           title="Stopped"
-          value={stoppedCount}
+          value={loading ? "..." : stoppedCount}
           icon={<Square size={20} />}
           accent="text-amber-400"
         />
       </div>
 
-      {/* Instance table */}
+      {/* Instance Inventory */}
       <div className="overflow-hidden rounded-xl border border-slate-800 bg-slate-900/70">
+
         <div className="flex flex-col justify-between gap-4 border-b border-slate-800 p-5 md:flex-row md:items-center">
           <div>
-            <h3 className="font-semibold text-white">EC2 Instances</h3>
+            <h3 className="font-semibold text-white">
+              EC2 Instances
+            </h3>
+
             <p className="mt-1 text-xs text-slate-500">
-              {filteredInstances.length} of {instances.length} instances shown
+              {loading
+                ? "Fetching AWS resources..."
+                : `${filteredInstances.length} of ${instances.length} instances shown`}
             </p>
           </div>
 
+          {/* Search and Filter */}
           <div className="flex flex-col gap-3 sm:flex-row">
             <div className="relative">
               <Search
@@ -200,12 +210,14 @@ export default function ComputePage() {
           </div>
         </div>
 
+        {/* Table */}
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[850px] text-left text-sm">
+          <table className="w-full min-w-[900px] text-left text-sm">
+
             <thead className="bg-slate-950/70 text-xs uppercase tracking-wider text-slate-500">
               <tr>
                 <th className="px-5 py-4">Instance</th>
-                <th className="px-5 py-4">Instance type</th>
+                <th className="px-5 py-4">Instance Type</th>
                 <th className="px-5 py-4">Availability Zone</th>
                 <th className="px-5 py-4">Private IP</th>
                 <th className="px-5 py-4">Public IP</th>
@@ -215,14 +227,20 @@ export default function ComputePage() {
             </thead>
 
             <tbody className="divide-y divide-slate-800">
+
               {filteredInstances.map((instance) => (
                 <tr
                   key={instance.id}
                   className="transition hover:bg-slate-800/40"
                 >
                   <td className="px-5 py-4">
-                    <p className="font-medium text-white">{instance.name}</p>
-                    <p className="mt-1 text-xs text-slate-500">{instance.id}</p>
+                    <p className="font-medium text-white">
+                      {instance.name}
+                    </p>
+
+                    <p className="mt-1 text-xs text-slate-500">
+                      {instance.id}
+                    </p>
                   </td>
 
                   <td className="px-5 py-4 text-slate-300">
@@ -245,28 +263,45 @@ export default function ComputePage() {
                     <StatusBadge status={instance.status} />
                   </td>
 
-                  <td className="px-5 py-4">
-                    <button
-                      onClick={() => toggleInstance(instance.id)}
-                      className={`rounded-lg px-3 py-1.5 text-xs font-medium transition ${
-                        instance.status === "Running"
-                          ? "border border-amber-500/30 bg-amber-500/10 text-amber-300 hover:bg-amber-500/20"
-                          : "border border-emerald-500/30 bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/20"
-                      }`}
-                    >
-                      {instance.status === "Running" ? "Stop" : "Start"}
-                    </button>
+                  <td className="px-5 py-4 text-slate-500">
+                    <span title="Read-only monitoring">
+                      <MoreHorizontal size={18} />
+                    </span>
                   </td>
                 </tr>
               ))}
 
-              {filteredInstances.length === 0 && (
+              {!loading && !error && filteredInstances.length === 0 && (
                 <tr>
                   <td
                     colSpan="7"
                     className="px-5 py-12 text-center text-slate-500"
                   >
-                    No matching instances found.
+                    {instances.length === 0
+                      ? "No EC2 instances found in this AWS region."
+                      : "No matching instances found."}
+                  </td>
+                </tr>
+              )}
+
+              {loading && (
+                <tr>
+                  <td
+                    colSpan="7"
+                    className="px-5 py-12 text-center text-slate-400"
+                  >
+                    Fetching live EC2 information...
+                  </td>
+                </tr>
+              )}
+
+              {!loading && error && (
+                <tr>
+                  <td
+                    colSpan="7"
+                    className="px-5 py-12 text-center text-red-400"
+                  >
+                    Unable to display EC2 instances.
                   </td>
                 </tr>
               )}
@@ -274,8 +309,14 @@ export default function ComputePage() {
           </table>
         </div>
 
+        {/* Footer */}
         <div className="flex items-center justify-between border-t border-slate-800 px-5 py-4 text-xs text-slate-500">
-          <span>Showing {filteredInstances.length} instances</span>
+          <span>
+            {loading
+              ? "Loading..."
+              : `Showing ${filteredInstances.length} instances`}
+          </span>
+
           <MoreHorizontal size={18} />
         </div>
       </div>
@@ -283,7 +324,12 @@ export default function ComputePage() {
   );
 }
 
-function SummaryCard({ title, value, icon, accent = "text-cyan-400" }) {
+function SummaryCard({
+  title,
+  value,
+  icon,
+  accent = "text-cyan-400",
+}) {
   return (
     <div className="rounded-xl border border-slate-800 bg-slate-900/70 p-5">
       <div className="flex items-center justify-between">
@@ -291,27 +337,37 @@ function SummaryCard({ title, value, icon, accent = "text-cyan-400" }) {
         <span className={accent}>{icon}</span>
       </div>
 
-      <p className="mt-4 text-3xl font-bold text-white">{value}</p>
+      <p className="mt-4 text-3xl font-bold text-white">
+        {value}
+      </p>
     </div>
   );
 }
 
 function StatusBadge({ status }) {
   const isRunning = status === "Running";
+  const isStopped = status === "Stopped";
 
   return (
     <span
       className={`inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs font-medium ${
         isRunning
           ? "bg-emerald-500/10 text-emerald-400"
-          : "bg-amber-500/10 text-amber-400"
+          : isStopped
+            ? "bg-amber-500/10 text-amber-400"
+            : "bg-slate-500/10 text-slate-400"
       }`}
     >
       <span
         className={`h-1.5 w-1.5 rounded-full ${
-          isRunning ? "bg-emerald-400" : "bg-amber-400"
+          isRunning
+            ? "bg-emerald-400"
+            : isStopped
+              ? "bg-amber-400"
+              : "bg-slate-400"
         }`}
       />
+
       {status}
     </span>
   );
