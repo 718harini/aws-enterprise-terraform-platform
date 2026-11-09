@@ -86,7 +86,7 @@ resource "aws_lambda_function" "this" {
   memory_size = var.memory_size
 
   # Limit concurrent executions to protect the account.
-  reserved_concurrent_executions = 5
+  reserved_concurrent_executions = -1
 
   depends_on = [
     aws_iam_role_policy.logs,
