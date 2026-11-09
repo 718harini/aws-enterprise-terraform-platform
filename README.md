@@ -1,118 +1,270 @@
-# Enterprise AWS Terraform Platform
+# AWS Enterprise Terraform Platform
 
-A modular, portfolio-oriented AWS infrastructure codebase. It demonstrates custom Terraform modules, safe defaults, security controls, and an optional Registry-module alternative.
+A modular AWS infrastructure management platform built using **Terraform, Python FastAPI, Boto3, and React**. It combines Infrastructure as Code, AWS resource visibility, security auditing, monitoring, and cost management through a centralized dashboard.
 
-## Safety contract
+## Architecture
 
-- Every root-level feature flag defaults to `false`.
-- `terraform init`, `terraform fmt`, and `terraform validate` do not create AWS infrastructure.
-- `terraform plan` evaluates the proposed changes; it does not create resources.
-- `terraform apply` creates resources and can incur charges. Do not run it without reviewing the plan and current AWS pricing.
-- NAT Gateway, ALB, CloudFront, public IPv4, RDS, ECS/EKS, CloudTrail data events, and many other services can incur charges.
-- The starter does not create NAT Gateways, ALBs, RDS, EKS, or ECS by default.
-- Do not commit credentials, `.tfvars` containing secrets, state files, or private keys.
+```mermaid
+flowchart TD
+    A[User] --> B[React Dashboard]
+    B --> C[FastAPI Backend]
+    C --> D[Boto3 AWS SDK]
 
-## Included modules
+    D --> E[EC2]
+    D --> F[S3]
+    D --> G[VPC]
+    D --> H[RDS]
+    D --> I[CloudWatch]
+    D --> J[IAM]
+    D --> K[Cost Explorer]
 
-| Module | Purpose |
+    L[Terraform] --> M[Modular AWS Infrastructure]
+    M --> N[Networking]
+    M --> O[Compute]
+    M --> P[Storage]
+    M --> Q[DynamoDB]
+    M --> R[Lambda]
+    M --> S[CloudTrail]
+```
+
+## Key Features
+
+- Modular Terraform architecture with conditional resource deployment.
+- AWS VPC, subnet, routing, and security group provisioning.
+- EC2 provisioning with encrypted EBS, IMDSv2, and IAM instance profiles.
+- Private S3 storage with versioning, encryption, and lifecycle policies.
+- DynamoDB with on-demand billing and optional point-in-time recovery.
+- Lambda deployment with IAM execution roles and CloudWatch logging.
+- Multi-region CloudTrail auditing and VPC Flow Logs.
+- FastAPI REST endpoints for AWS resource information.
+- React dashboard with Compute, Storage, Networking, Database, Monitoring, Security, and Cost Optimization sections.
+- Checkov security scanning for Terraform configurations.
+
+## Technology Stack
+
+| Category | Technologies |
 |---|---|
-| network | VPC, public subnets, IGW, public route table, web security group |
-| storage | Private S3 bucket, public access block, versioning, encryption |
-| compute | Amazon Linux 2023 EC2 instance with IMDSv2 and encrypted gp3 root volume |
-| database | On-demand DynamoDB table |
-| serverless | Minimal Python Lambda, IAM execution role, CloudWatch log group |
-| audit | Multi-region CloudTrail and dedicated S3 log bucket |
+| Cloud | AWS |
+| Infrastructure as Code | Terraform |
+| Backend | Python, FastAPI |
+| AWS SDK | Boto3 |
+| Frontend | React 19, Vite |
+| Styling | Tailwind CSS |
+| Charts | Recharts |
+| API Documentation | Swagger / OpenAPI |
+| Security Scanning | Checkov |
+| Version Control | Git, GitHub |
 
-The root module uses custom Terraform resources for clarity. `examples/registry-vpc` shows the alternative of consuming `terraform-aws-modules/vpc/aws`.
-
-## Repository layout
+## Project Structure
 
 ```text
-.
+aws-enterprise-terraform-platform/
+│
+├── .github/
+├── backend/
+│   ├── main.py
+│   ├── aws_client.py
+│   └── requirements.txt
+│
+├── dashboard/
+│   └── frontend/
+│       └── src/
+│           ├── pages/
+│           ├── services/
+│           ├── App.jsx
+│           └── main.jsx
+│
+├── modules/
+│   ├── network/
+│   ├── compute/
+│   ├── storage/
+│   ├── database/
+│   ├── serverless/
+│   └── audit/
+│
+├── examples/
 ├── main.tf
 ├── variables.tf
 ├── outputs.tf
 ├── versions.tf
 ├── terraform.tfvars.example
-├── modules/
-│   ├── network/
-│   ├── storage/
-│   ├── compute/
-│   ├── database/
-│   ├── serverless/
-│   └── audit/
-└── examples/
-    └── registry-vpc/
+├── .terraform.lock.hcl
+└── README.md
 ```
 
-## Local validation first
+## AWS Infrastructure Modules
 
-Install Terraform and configure AWS CLI only if you later need AWS-backed planning or deployment.
+| Module | Resources / Capabilities |
+|---|---|
+| Network | VPC, public subnets, Internet Gateway, route tables, security groups, VPC Flow Logs |
+| Compute | EC2, encrypted EBS, IMDSv2, IAM instance profile |
+| Storage | S3, versioning, encryption, lifecycle policies |
+| Database | DynamoDB, on-demand billing, optional PITR |
+| Serverless | Lambda, IAM execution role, CloudWatch logs |
+| Audit | Multi-region CloudTrail, S3 audit bucket |
 
-```bash
-cp terraform.tfvars.example terraform.tfvars
-terraform fmt -recursive
+Infrastructure deployment is controlled through Terraform variables. All optional deployment flags are disabled by default to help prevent accidental AWS charges.
+
+## Prerequisites
+
+Install:
+
+- AWS CLI
+- Terraform
+- Python 3
+- Node.js and npm
+- Git
+
+Configure AWS credentials:
+
+```powershell
+aws configure
+aws sts get-caller-identity
+```
+
+## Installation and Setup
+
+### 1. Clone the repository
+
+```powershell
+git clone https://github.com/718harini/aws-enterprise-terraform-platform.git
+
+cd aws-enterprise-terraform-platform
+```
+
+### 2. Configure Terraform
+
+```powershell
+Copy-Item terraform.tfvars.example terraform.tfvars
+
 terraform init
+terraform fmt -recursive
 terraform validate
 ```
 
-No AWS resources are created by these commands. `terraform init` downloads provider plugins and writes a dependency lock file. Commit `.terraform.lock.hcl` after reviewing it so provider selections remain reproducible.
+Edit `terraform.tfvars` and enable only the infrastructure modules you want to deploy.
 
-### Validate with all features disabled
+Review and deploy:
 
-The example tfvars keeps all features disabled. The expected plan is zero infrastructure changes.
+```powershell
+terraform plan -var-file="terraform.tfvars"
 
-```bash
-terraform plan
+terraform apply -var-file="terraform.tfvars"
 ```
 
-A plan may still require AWS credentials/provider access depending on provider data sources and configuration. This starter's root has no mandatory AWS data sources when all modules are disabled.
+### 3. Start the FastAPI backend
 
-## Enabling modules
+```powershell
+python -m venv backend/venv
 
-Only enable one component group at a time after reading the module code and reviewing current pricing.
+.\backend\venv\Scripts\Activate.ps1
 
-Example: networking only:
+pip install -r backend/requirements.txt
 
-```hcl
-enable_network = true
+python -m uvicorn main:app --app-dir backend --reload
 ```
 
-Then run:
+Backend:
 
-```bash
-terraform plan -out=tfplan
-terraform show tfplan
+`http://127.0.0.1:8000`
+
+API documentation:
+
+`http://127.0.0.1:8000/docs`
+
+Health check:
+
+`http://127.0.0.1:8000/health`
+
+### 4. Start the React frontend
+
+Open another terminal:
+
+```powershell
+cd dashboard/frontend
+
+npm install
+
+npm run dev
 ```
 
-Do not apply unless you intentionally approve the resources and understand the costs. The network module creates a VPC, subnets, IGW, route table, routes, and security group. It does not create NAT Gateway.
+Dashboard:
 
-EC2 requires networking to be enabled as well. Set `enable_network = true` and `enable_ec2 = true` together. Set `allowed_ssh_cidr` to your own public IP `/32` only if SSH is genuinely required. Prefer Systems Manager Session Manager in a later hardened iteration.
+`http://localhost:5173`
 
-## State management
+The frontend uses `VITE_API_BASE_URL` to configure the backend address. Its default is `http://127.0.0.1:8000`.
 
-The starter intentionally uses local state for the first validation-only phase. For team/production use, create a separate bootstrap stack for:
-- an S3 state bucket with versioning and encryption,
-- tightly scoped IAM permissions,
-- state locking using the currently recommended Terraform/AWS locking approach,
-- backup and recovery procedures.
+Build the frontend:
 
-Do not point a backend at a bucket managed by the same unbootstrapped root module.
+```powershell
+npm run build
+```
 
-## Known next engineering iterations
+## Dashboard
 
-This is a safe, working foundation, not a claim that every AWS service has already been implemented. Planned modules include ALB, Auto Scaling, ECS/ECR, EFS, RDS, ElastiCache, CloudFront, Route 53, ACM, WAF, KMS, Secrets Manager, Config, GuardDuty, EventBridge, SQS, API Gateway, Step Functions, Glue, and Athena. Add these in independent modules with feature flags and cost notes.
+The platform provides centralized views for:
 
-## Interview topics
+- Compute resources
+- S3 storage
+- Networking
+- Database resources
+- CloudWatch monitoring
+- IAM security audits
+- AWS cost information
 
-Be ready to explain:
-- Terraform module source and version pinning
-- resource graph and implicit/explicit dependencies
-- `count` versus `for_each`
-- variables, outputs, locals, data sources
-- state, drift, locking, and remote backends
-- plan versus apply
-- least-privilege IAM and security group ingress
-- encryption at rest and public S3 access prevention
-- IMDSv2 and encrypted EBS
-- why NAT Gateway and public IPv4 can create ongoing costs
+## Security and Cost Considerations
+
+- S3 public access blocking and server-side encryption.
+- Encrypted EC2 EBS volumes.
+- IMDSv2 enforcement.
+- IAM-based AWS access.
+- CloudTrail auditing and VPC Flow Logs.
+- Conditional Terraform deployment.
+- Cost-conscious resource configurations.
+- Checkov security scanning.
+
+**Security note:** Never commit AWS credentials, `.env` files containing secrets, Terraform state files, or sensitive `.tfvars` files.
+
+## Validation
+
+Development validation included:
+
+- Terraform formatting and validation.
+- Checkov security scanning.
+- FastAPI application import and startup.
+- API health endpoint verification.
+- Swagger documentation verification.
+- React development server and frontend integration.
+- Production frontend build.
+
+## Cleanup
+
+Remove Terraform-managed resources when they are no longer required:
+
+```powershell
+terraform destroy -var-file="terraform.tfvars"
+```
+
+Always review the destruction plan before confirming. Check AWS for any resources created outside Terraform as well.
+
+## Current Integration Note
+
+The Terraform database module provisions DynamoDB, while the current backend database endpoint retrieves RDS instances. DynamoDB dashboard integration is a planned improvement.
+
+## Future Enhancements
+
+- DynamoDB API integration.
+- Authentication and role-based access control.
+- Automated backend testing.
+- CI/CD pipeline enhancements.
+- Advanced cost optimization recommendations.
+- Expanded monitoring and alerting.
+
+## Author
+
+**Harini**
+
+[GitHub Profile](https://github.com/718harini)
+
+---
+**Built to explore practical AWS infrastructure automation, cloud security, and full-stack cloud management.**

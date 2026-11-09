@@ -33,3 +33,13 @@ Thumbs.db
 node_modules/
 dist/
 coverage/
+
+# Terraform local data and state
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+
+# Python virtual environments
+backend/venv/
+venv/
